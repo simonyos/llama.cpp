@@ -1,0 +1,8 @@
+Write a Python implementation of an LRU cache with O(1) get and put, using a dict and a doubly linked list. Include type hints, docstrings and unit tests with pytest.
+Write a small REST API in Go using only the standard library that manages a todo list (create, list, update, delete) stored in memory with a mutex. Show the full code.
+Implement a C++17 thread pool class with a task queue, futures for results, and graceful shutdown. Then show an example that computes primes in parallel.
+Write a TypeScript React component for a sortable, filterable data table with pagination. Use hooks and include the types for the props.
+Write a Bash script that backs up a directory to a timestamped tar.gz, keeps only the 7 most recent backups, logs to a file, and exits with useful error codes.
+Write a SQL schema for a library system (books, authors, members, loans) and then write queries for: overdue loans, the most borrowed authors last month, and members with no loans.
+Implement Dijkstra's shortest path algorithm in Rust with a binary heap, plus a function that reconstructs the path. Include tests.
+Write a Python script using asyncio and aiohttp that crawls a website up to depth 2, respects a concurrency limit, and saves page titles to a CSV file.

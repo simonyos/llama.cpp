@@ -1,0 +1,8 @@
+Prove that there are infinitely many primes, then prove that there are infinitely many primes of the form 4k+3. Explain each step carefully.
+A bag contains 5 red, 4 blue and 3 green balls. Three balls are drawn without replacement. Compute the probability of each colour combination and verify they sum to 1. Show all working.
+Derive the formula for the sum of a geometric series, then use it to compute the present value of an annuity paying $1000 per year for 20 years at 5% interest. Show every step.
+Solve the differential equation y'' + 4y' + 13y = e^(-2x) sin(3x) using the method of undetermined coefficients. Show all steps and verify the answer.
+Explain eigenvalues and eigenvectors, then compute them by hand for the matrix [[4,1,2],[0,3,1],[0,0,2]] and diagonalize it if possible.
+Use dynamic programming to find the number of ways to make change for 100 cents using coins of 1, 5, 10, 25 and 50 cents. Show the table construction step by step.
+Explain Bayes' theorem with a medical-test example: a disease with 1% prevalence, a test with 95% sensitivity and 90% specificity. Compute the posterior after one and after two positive tests.
+Find all real solutions of x^4 - 5x^2 + 4 = 0 and of x^3 - 6x^2 + 11x - 6 = 0, then explain the general strategy for factoring polynomials with integer roots.
