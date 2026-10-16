@@ -155,14 +155,20 @@ Measured on the same machine (Qwen3-30B-A3B, 4 prompts × 4 sets × 256 tokens, 
 | #29887 `--cpu-moe --moe-cache-mib 5450` (8 prompts per set) | 66.0 / 59.0 / 69.1 / 42.2 | 56.9 |
 | #27861 at `bccbacd`, `--cpu-moe -lm none --moe-expert-cache 41` (1968 slots), 2 inserts | 68.0 / 65.0 / 69.9 / 50.2 | 62.2 |
 | #27861, same, 8 inserts | 64.0 / 29.0 / 18.4 / 18.2 | 25.1 |
+| stock `--n-cpu-moe 33` built from #29949's base (8 prompts per set) | 37.1 / 37.2 / 37.1 / 37.2 | 37.1 |
+| #29949 at `094ea24`, `-ncmoe 48 --load-mode none --moe-lru-slots 41` (1968 slots, 7.5 GB VRAM, 8 prompts per set) | 62.8 / 58.1 / 67.0 / 42.8 | 56.0 |
+| #29949, `--moe-lru-slots 42` (2016 slots, 7.7 GB VRAM, 8 prompts per set) | 64.5 / 59.3 / 68.5 / 43.9 | 57.3 |
 | **this patch**, 1984 slots, admit 16 | **84.0 / 78.3 / 86.4 / 62.0** | **76.4** |
+| **this patch**, same (8 prompts per set, 7.6 GB VRAM) | **83.9 / 77.1 / 86.8 / 61.5** | **75.9** |
 
 - #27861 with 8 uploads per step slows down more the longer it runs, which is what a saturated copy engine would do. We did not profile it to prove the cause.
   That run also ended with a GPU copy-engine read fault (NVIDIA Xid 31) when the server shut down, so we stopped testing it there.
 - #27861 only supports the SILU gate/up path without biases, so it could not run gpt-oss-20b.
 - #29949 reports 9.7 → 37–50 t/s (3.5–4x) on a Radeon 7900 XTX and 47.6 t/s on 2x RTX 3090, both on PCIe 4.0 x16 (~26 GB/s), with a larger model (Qwen3.8-Flash-Next).
   Its baseline is all experts on the CPU (`-ncmoe 48`), not the best `--n-cpu-moe` split. Against #29887 on the same machine it reports 31.2 vs 20.1 t/s (~1.55x).
-  Same-machine numbers for #29949 on this PC: being measured, will be added here.
+  On this PC (PCIe 3.0 x16, 13.4 GB/s) we built its branch at `094ea24` and ran the same prompts. #29949 reached 56.0–57.3 tok/s on Qwen3-30B-A3B, close to #29887 (56.9), while this patch reached 75.9 (about 1.33x) with less VRAM.
+  Stock speed on #29949's base (37.1) matches ours, so the base commit is not the cause. On its author's PCIe 4.0 machines the ranking may differ.
+- #29949 stops with an assertion on gpt-oss-20b (`GGML_ASSERT` in `llama-graph.cpp`: biased experts are not supported), so only Qwen3-30B-A3B could be compared.
 - The SpecMD study ([arXiv 2602.03921](https://arxiv.org/abs/2602.03921)) argues that LRU/LFU locality assumptions do not fit MoE. Here decayed LFU was worse than LRU on real traces, and segmented LRU was a little better.
 
 ## Limitations
