@@ -81,6 +81,8 @@ For the full list of features, please refer to [server's changelog](https://gith
 | `-cmoe, --cpu-moe` | keep all Mixture of Experts (MoE) weights in the CPU<br/>(env: LLAMA_ARG_CPU_MOE) |
 | `-ncmoe, --n-cpu-moe N` | keep the Mixture of Experts (MoE) weights of the first N layers in the CPU<br/>(env: LLAMA_ARG_N_CPU_MOE) |
 | `--moe-cache-mib N` | GPU cache size in MiB for the MoE experts kept in the CPU. with multiple GPUs, it is split among them like the layers (--tensor-split) (default: 0, disabled)<br/>(env: LLAMA_ARG_MOE_CACHE_MIB) |
+| `--moe-cache-slots N` | GPU cache size in experts for the MoE experts kept in the CPU (requires --load-mode none). the cached experts run on the GPU, the others run on the CPU and the most recently used ones are copied to the cache in the background (default: 0, disabled)<br/>(env: LLAMA_ARG_MOE_CACHE_SLOTS) |
+| `--moe-cache-admit N` | max experts copied to the --moe-cache-slots cache at the same time, 0 keeps the first experts (default: 8)<br/>(env: LLAMA_ARG_MOE_CACHE_ADMIT) |
 | `-ncffn, --n-cpu-ffn N` | keep the dense FFN weights of the first N layers in the CPU<br/>(dense models; for MoE expert weights use --n-cpu-moe)<br/>(env: LLAMA_ARG_N_CPU_FFN) |
 | `-ngl, --gpu-layers, --n-gpu-layers N` | max. number of layers to store in VRAM, either an exact number, 'auto', or 'all' (default: auto)<br/>(env: LLAMA_ARG_N_GPU_LAYERS) |
 | `-sm, --split-mode {none,layer,row,tensor}` | how to split the model across multiple GPUs, one of:<br/>- none: use one GPU only<br/>- layer (default): split layers and KV across GPUs (pipelined)<br/>- row: split weight across GPUs by rows (parallelized)<br/>- tensor: split weights and KV across GPUs (parallelized, EXPERIMENTAL)<br/>(env: LLAMA_ARG_SPLIT_MODE) |

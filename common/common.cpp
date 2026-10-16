@@ -1743,7 +1743,9 @@ struct llama_context_params common_context_params_to_llama(const common_params &
     cparams.type_k = params.cache_type_k;
     cparams.type_v = params.cache_type_v;
 
-    cparams.moe_cache_size = params.moe_cache_size;
+    cparams.moe_cache_size  = params.moe_cache_size;
+    cparams.moe_cache_slots = params.moe_cache_slots;
+    cparams.moe_cache_admit = params.moe_cache_admit;
 
     return cparams;
 }

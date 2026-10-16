@@ -2313,6 +2313,109 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         cb(cur, "ffn_moe_weighted", il);
     }
 
+    ggml_tensor * experts = nullptr;
+
+    // hybrid MoE cache: each selected expert runs on the device from the cache, or on the CPU from host memory
+    ggml_tensor * route = nullptr;
+    if (!weight_before_ffn && !up_exps_s && !gate_exps_s && !down_exps_s) {
+        experts = build_moe_cache_async(cur, selected_experts, up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b, type_op, il);
+        if (experts == nullptr) {
+            route = build_moe_cache_route(selected_experts, up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b, il);
+        }
+    }
+    if (experts) {
+        // the misses run on the CPU in the copy callbacks of the cache
+    } else if (route) {
+        const int64_t n_sel = selected_experts->ne[0];
+        ggml_tensor * ids_dev = ggml_view_2d(ctx0, route, n_sel, selected_experts->ne[1], route->nb[1], 0);
+        ggml_tensor * ids_cpu = ggml_view_2d(ctx0, route, n_sel, selected_experts->ne[1], route->nb[1], route->nb[2]);
+
+        // the CPU experts first, so that the layer has one CPU split
+        ggml_tensor * experts_cpu = build_moe_experts(cur, ids_cpu, nullptr,
+                up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b,
+                nullptr, nullptr, nullptr, type_op, il);
+        ggml_build_forward_expand(gf, experts_cpu);
+
+        auto cached = [&](ggml_tensor * t) { return t ? moe_cache->get_experts(t) : nullptr; };
+        ggml_tensor * experts_dev = build_moe_experts(cur, ids_dev, nullptr,
+                cached(up_exps), cached(up_exps_b), cached(gate_exps), cached(gate_exps_b), cached(down_exps), cached(down_exps_b),
+                cached(gate_up_exps), cached(gate_up_exps_b), nullptr, nullptr, nullptr, type_op, il);
+
+        // the side that does not compute an expert gives zeros
+        experts = ggml_add(ctx0, experts_dev, experts_cpu);
+        ggml_backend_sched_set_tensor_backend(sched, experts, moe_cache->backend(il));
+        cb(experts, "ffn_moe_merged", il);
+    } else {
+        experts = build_moe_experts(cur, selected_experts, slots,
+                up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b,
+                up_exps_s, gate_exps_s, down_exps_s, type_op, il);
+    }
+
+    // an expert output can be scaled by a norm weight, then normalized, before the router weights apply
+    if (post_exp_norm) {
+        experts = ggml_mul(ctx0, experts, post_exp_norm);
+        experts = ggml_rms_norm(ctx0, experts, post_exp_norm_eps);
+        cb(experts, "ffn_moe_post_exp_norm", il);
+    }
+
+    if (!weight_before_ffn) {
+        experts = ggml_mul(ctx0, experts, weights);
+        cb(experts, "ffn_moe_weighted", il);
+    }
+
+    ggml_build_forward_expand(gf, experts);
+
+    ggml_tensor * cur_experts[LLAMA_MAX_EXPERTS] = { nullptr };
+
+    assert(n_expert_used > 0);
+
+    // order the views before the adds
+    // Use per-layer n_expert_used to bound the graph even during warmup (avoids
+    // the large-add-nodes issue for uniform arches; for Puzzle the per-layer
+    // value is correct). ref: https://github.com/ggml-org/llama.cpp/pull/14753
+    const uint32_t n_expert_used_il = hparams.n_expert_used(il);
+    for (uint32_t i = 0; i < n_expert_used_il; ++i) {
+        cur_experts[i] = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
+
+        ggml_build_forward_expand(gf, cur_experts[i]);
+    }
+
+    // aggregate experts
+    ggml_tensor * moe_out = cur_experts[0];
+
+    for (uint32_t i = 1; i < n_expert_used_il; ++i) {
+        moe_out = ggml_add(ctx0, moe_out, cur_experts[i]);
+
+        ggml_build_forward_expand(gf, moe_out);
+    }
+
+    if (n_expert_used_il == 1) {
+        // avoid returning a non-contiguous tensor
+        moe_out = ggml_cont(ctx0, moe_out);
+    }
+
+    cb(moe_out, "ffn_moe_out", il);
+
+    return moe_out;
+}
+
+ggml_tensor * llm_graph_context::build_moe_experts(
+         ggml_tensor * cur,
+         ggml_tensor * selected_experts,
+         ggml_tensor * slots,
+         ggml_tensor * up_exps,
+         ggml_tensor * up_exps_b,
+         ggml_tensor * gate_exps,
+         ggml_tensor * gate_exps_b,
+         ggml_tensor * down_exps,
+         ggml_tensor * down_exps_b,
+         ggml_tensor * gate_up_exps,
+         ggml_tensor * gate_up_exps_b,
+         ggml_tensor * up_exps_s,
+         ggml_tensor * gate_exps_s,
+         ggml_tensor * down_exps_s,
+     llm_ffn_op_type   type_op,
+                 int   il) const {
     ggml_tensor * up = nullptr;
     ggml_tensor * experts = nullptr;
 
@@ -2467,52 +2570,91 @@ ggml_tensor * llm_graph_context::build_moe_ffn(
         cb(experts, "ffn_moe_down_biased", il);
     }
 
-    // an expert output can be scaled by a norm weight, then normalized, before the router weights apply
-    if (post_exp_norm) {
-        experts = ggml_mul(ctx0, experts, post_exp_norm);
-        experts = ggml_rms_norm(ctx0, experts, post_exp_norm_eps);
-        cb(experts, "ffn_moe_post_exp_norm", il);
+    return experts;
+}
+
+ggml_tensor * llm_graph_context::build_moe_cache_async(
+         ggml_tensor * cur,
+         ggml_tensor * selected_experts,
+         ggml_tensor * up_exps,
+         ggml_tensor * up_exps_b,
+         ggml_tensor * gate_exps,
+         ggml_tensor * gate_exps_b,
+         ggml_tensor * down_exps,
+         ggml_tensor * down_exps_b,
+         ggml_tensor * gate_up_exps,
+         ggml_tensor * gate_up_exps_b,
+     llm_ffn_op_type   type_op,
+                 int   il) const {
+    if (moe_cache == nullptr || (loras != nullptr && !loras->empty()) || selected_experts->ne[1] != 1) {
+        return nullptr;
+    }
+    ggml_tensor * slot_map = moe_cache->get_async_slot_map(il);
+    ggml_tensor * cpu_out  = moe_cache->get_async_cpu_out(il);
+    if (slot_map == nullptr || cpu_out->ne[1] != selected_experts->ne[0] || cpu_out->ne[0] != cur->ne[0]) {
+        return nullptr;
+    }
+    for (ggml_tensor * t : { up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b }) {
+        if (t != nullptr && moe_cache->get_experts(t) == nullptr) {
+            return nullptr;
+        }
+    }
+    const int64_t n_sel = selected_experts->ne[0];
+
+    // the copy callback of the slot map reads ids and cur back, so they are computed in an earlier split
+    ggml_tensor * ids   = ggml_cont(ctx0, selected_experts);
+    ggml_tensor * slots = ggml_get_rows(ctx0, slot_map, ggml_reshape_1d(ctx0, ids, n_sel)); // [1, n_sel]
+    ggml_backend_sched_set_tensor_backend(sched, slots, moe_cache->backend(il));
+    cb(slots, "ffn_moe_slots", il);
+    ggml_build_forward_expand(gf, slots);
+    slots = ggml_reshape_2d(ctx0, slots, n_sel, 1);
+
+    auto cached = [&](ggml_tensor * t) { return t ? moe_cache->get_experts(t) : nullptr; };
+    ggml_tensor * experts_dev = build_moe_experts(cur, slots, nullptr,
+            cached(up_exps), cached(up_exps_b), cached(gate_exps), cached(gate_exps_b), cached(down_exps), cached(down_exps_b),
+            cached(gate_up_exps), cached(gate_up_exps_b), nullptr, nullptr, nullptr, type_op, il);
+
+    // the CPU sub-graph of the misses is not in gf, the cache runs it in the copy callback of cpu_out
+    ggml_tensor * cpu_cur = ggml_new_tensor_3d(ctx0, GGML_TYPE_F32, cur->ne[0], 1, 1);
+    ggml_tensor * cpu_ids = ggml_new_tensor_2d(ctx0, GGML_TYPE_I32, n_sel, 1);
+    ggml_tensor * cpu_exp = build_moe_experts(cpu_cur, cpu_ids, nullptr,
+            up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b,
+            nullptr, nullptr, nullptr, type_op, il);
+    moe_cache->set_async_graph(il, ids, cur, cpu_cur, cpu_ids, cpu_exp);
+
+    // the side that does not compute an expert gives zeros
+    ggml_tensor * experts = ggml_add(ctx0, experts_dev, cpu_out);
+    ggml_backend_sched_set_tensor_backend(sched, experts, moe_cache->backend(il));
+    cb(experts, "ffn_moe_merged", il);
+    return experts;
+}
+
+ggml_tensor * llm_graph_context::build_moe_cache_route(
+         ggml_tensor * selected_experts,
+         ggml_tensor * up_exps,
+         ggml_tensor * up_exps_b,
+         ggml_tensor * gate_exps,
+         ggml_tensor * gate_exps_b,
+         ggml_tensor * down_exps,
+         ggml_tensor * down_exps_b,
+         ggml_tensor * gate_up_exps,
+         ggml_tensor * gate_up_exps_b,
+                 int   il) const {
+    if (moe_cache == nullptr || (loras != nullptr && !loras->empty())) {
+        return nullptr;
+    }
+    for (ggml_tensor * t : { up_exps, up_exps_b, gate_exps, gate_exps_b, down_exps, down_exps_b, gate_up_exps, gate_up_exps_b }) {
+        if (t != nullptr && moe_cache->get_experts(t) == nullptr) {
+            return nullptr;
+        }
     }
 
-    if (!weight_before_ffn) {
-        experts = ggml_mul(ctx0, experts, weights);
-        cb(experts, "ffn_moe_weighted", il);
+    // a CPU op that reads the selected experts and splits them between the cache and the CPU
+    ggml_tensor * route = moe_cache->build_route(ctx0, selected_experts, il);
+    if (route != nullptr) {
+        cb(route, "ffn_moe_route", il);
     }
-
-    ggml_build_forward_expand(gf, experts);
-
-    ggml_tensor * cur_experts[LLAMA_MAX_EXPERTS] = { nullptr };
-
-    assert(n_expert_used > 0);
-
-    // order the views before the adds
-    // Use per-layer n_expert_used to bound the graph even during warmup (avoids
-    // the large-add-nodes issue for uniform arches; for Puzzle the per-layer
-    // value is correct). ref: https://github.com/ggml-org/llama.cpp/pull/14753
-    const uint32_t n_expert_used_il = hparams.n_expert_used(il);
-    for (uint32_t i = 0; i < n_expert_used_il; ++i) {
-        cur_experts[i] = ggml_view_2d(ctx0, experts, n_embd, n_tokens, experts->nb[2], i*experts->nb[1]);
-
-        ggml_build_forward_expand(gf, cur_experts[i]);
-    }
-
-    // aggregate experts
-    ggml_tensor * moe_out = cur_experts[0];
-
-    for (uint32_t i = 1; i < n_expert_used_il; ++i) {
-        moe_out = ggml_add(ctx0, moe_out, cur_experts[i]);
-
-        ggml_build_forward_expand(gf, moe_out);
-    }
-
-    if (n_expert_used_il == 1) {
-        // avoid returning a non-contiguous tensor
-        moe_out = ggml_cont(ctx0, moe_out);
-    }
-
-    cb(moe_out, "ffn_moe_out", il);
-
-    return moe_out;
+    return route;
 }
 
 ggml_tensor * llm_graph_context::build_moe_cache_slots(

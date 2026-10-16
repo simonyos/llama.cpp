@@ -2587,6 +2587,42 @@ static void ggml_backend_cuda_set_tensor_async(ggml_backend_t backend, ggml_tens
     CUDA_CHECK(cudaMemcpyAsync((char *) tensor->data + offset, data, size, cudaMemcpyHostToDevice, cuda_ctx->stream()));
 }
 
+static __global__ void k_copy_from_host(int4 * __restrict__ dst, const int4 * __restrict__ src, const size_t n) {
+    for (size_t i = blockIdx.x*(size_t) blockDim.x + threadIdx.x; i < n; i += (size_t) gridDim.x*blockDim.x) {
+        dst[i] = src[i];
+    }
+}
+
+bool ggml_backend_cuda_set_tensor_async_kernel(ggml_backend_t backend, ggml_tensor * tensor, const void * data, size_t offset, size_t size) {
+#if defined(GGML_USE_HIP) || defined(GGML_USE_MUSA)
+    GGML_UNUSED_VARS(backend, tensor, data, offset, size);
+    return false;
+#else
+    ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
+    ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
+
+    GGML_ASSERT(buf->buft == ggml_backend_cuda_buffer_type(cuda_ctx->device) && "unsupported buffer type");
+
+    char * dst = (char *) tensor->data + offset;
+    if ((uintptr_t) data % sizeof(int4) != 0 || (uintptr_t) dst % sizeof(int4) != 0 || size % sizeof(int4) != 0) {
+        return false;
+    }
+
+    // the kernel reads the host memory directly, so it must be pinned and mapped
+    cudaPointerAttributes attr;
+    if (cudaPointerGetAttributes(&attr, data) != cudaSuccess || attr.type != cudaMemoryTypeHost || attr.devicePointer == nullptr) {
+        (void) cudaGetLastError();
+        return false;
+    }
+
+    // a few blocks fill PCIe
+    ggml_cuda_set_device(cuda_ctx->device);
+    k_copy_from_host<<<4, 256, 0, cuda_ctx->stream()>>>((int4 *) dst, (const int4 *) attr.devicePointer, size/sizeof(int4));
+    CUDA_CHECK(cudaGetLastError());
+    return true;
+#endif
+}
+
 static void ggml_backend_cuda_get_tensor_async(ggml_backend_t backend, const ggml_tensor * tensor, void * data, size_t offset, size_t size) {
     ggml_backend_cuda_context * cuda_ctx = (ggml_backend_cuda_context *) backend->context;
     ggml_backend_buffer_t buf = tensor->view_src ? tensor->view_src->buffer : tensor->buffer;
@@ -5951,6 +5987,17 @@ static void ggml_backend_cuda_device_event_synchronize(ggml_backend_dev_t dev, g
     CUDA_CHECK(cudaEventSynchronize((cudaEvent_t)event->context));
 }
 
+static bool ggml_backend_cuda_device_event_query(ggml_backend_dev_t dev, ggml_backend_event_t event) {
+    GGML_UNUSED(dev);
+    const cudaError_t err = cudaEventQuery((cudaEvent_t)event->context);
+    if (err == cudaErrorNotReady) {
+        (void) cudaGetLastError();
+        return false;
+    }
+    CUDA_CHECK(err);
+    return true;
+}
+
 static const ggml_backend_device_i ggml_backend_cuda_device_interface = {
     /* .get_name                = */ ggml_backend_cuda_device_get_name,
     /* .get_description         = */ ggml_backend_cuda_device_get_description,
@@ -5967,6 +6014,7 @@ static const ggml_backend_device_i ggml_backend_cuda_device_interface = {
     /* .event_new               = */ ggml_backend_cuda_device_event_new,
     /* .event_free              = */ ggml_backend_cuda_device_event_free,
     /* .event_synchronize       = */ ggml_backend_cuda_device_event_synchronize,
+    /* .event_query             = */ ggml_backend_cuda_device_event_query,
 };
 
 // backend reg
@@ -6067,6 +6115,9 @@ static void * ggml_backend_cuda_reg_get_proc_address(ggml_backend_reg_t reg, con
     }
     if (strcmp(name, "ggml_backend_get_features") == 0) {
         return (void *)ggml_backend_cuda_get_features;
+    }
+    if (strcmp(name, "ggml_backend_cuda_set_tensor_async_kernel") == 0) {
+        return (void *)ggml_backend_cuda_set_tensor_async_kernel;
     }
     return nullptr;
 }

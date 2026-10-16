@@ -38,6 +38,10 @@ GGML_BACKEND_API void ggml_backend_cuda_get_device_description(int device, char 
 GGML_BACKEND_API void ggml_backend_cuda_get_device_memory(int device, size_t * free, size_t * total);
 
 GGML_BACKEND_API bool ggml_backend_cuda_register_host_buffer(void * buffer, size_t size);
+
+// async copy from pinned host memory with a kernel instead of the copy engine, so that the small copies of other streams do not wait behind it
+// returns false if the memory cannot be read by the device or is not aligned to 16 bytes
+GGML_BACKEND_API bool ggml_backend_cuda_set_tensor_async_kernel(ggml_backend_t backend, struct ggml_tensor * tensor, const void * data, size_t offset, size_t size);
 GGML_BACKEND_API void ggml_backend_cuda_unregister_host_buffer(void * buffer);
 
 GGML_BACKEND_API ggml_backend_reg_t ggml_backend_cuda_reg(void);

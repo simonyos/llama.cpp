@@ -1211,6 +1211,54 @@ struct llm_graph_context {
              ggml_tensor * post_exp_norm = nullptr,
                    float   post_exp_norm_eps = 1e-5f) const;
 
+    // the outputs of the experts selected for each token, with their biases, before the router weights
+    // if slots is set, the experts are read from the MoE cache at these slots (see build_moe_cache_slots)
+    ggml_tensor * build_moe_experts(
+             ggml_tensor * cur,
+             ggml_tensor * selected_experts,
+             ggml_tensor * slots,
+             ggml_tensor * up_exps,
+             ggml_tensor * up_exps_b,
+             ggml_tensor * gate_exps,
+             ggml_tensor * gate_exps_b,
+             ggml_tensor * down_exps,
+             ggml_tensor * down_exps_b,
+             ggml_tensor * gate_up_exps,
+             ggml_tensor * gate_up_exps_b,
+             ggml_tensor * up_exps_s,
+             ggml_tensor * gate_exps_s,
+             ggml_tensor * down_exps_s,
+         llm_ffn_op_type   type_op,
+                     int   il) const;
+
+    // hybrid MoE cache, one token: the experts with their biases, the misses run on the CPU in the copy callbacks of the cache, nullptr if not used
+    ggml_tensor * build_moe_cache_async(
+             ggml_tensor * cur,
+             ggml_tensor * selected_experts,
+             ggml_tensor * up_exps,
+             ggml_tensor * up_exps_b,
+             ggml_tensor * gate_exps,
+             ggml_tensor * gate_exps_b,
+             ggml_tensor * down_exps,
+             ggml_tensor * down_exps_b,
+             ggml_tensor * gate_up_exps,
+             ggml_tensor * gate_up_exps_b,
+         llm_ffn_op_type   type_op,
+                     int   il) const;
+
+    // hybrid MoE cache: I32 [n_expert_used, n_tokens, 2] with the slots of the cached experts and the ids of the CPU experts, nullptr if not used
+    ggml_tensor * build_moe_cache_route(
+             ggml_tensor * selected_experts,
+             ggml_tensor * up_exps,
+             ggml_tensor * up_exps_b,
+             ggml_tensor * gate_exps,
+             ggml_tensor * gate_exps_b,
+             ggml_tensor * down_exps,
+             ggml_tensor * down_exps_b,
+             ggml_tensor * gate_up_exps,
+             ggml_tensor * gate_up_exps_b,
+                     int   il) const;
+
     // the slots of the selected experts in the MoE cache, nullptr if the experts of the layer are not read from the cache
     ggml_tensor * build_moe_cache_slots(
              ggml_tensor * selected_experts,

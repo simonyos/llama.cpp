@@ -358,7 +358,9 @@ llama_context::llama_context(
 
     cparams.op_offload     = params.op_offload;
     cparams.kv_unified     = params.kv_unified;
-    cparams.moe_cache_size = params.moe_cache_size;
+    cparams.moe_cache_size  = params.moe_cache_size;
+    cparams.moe_cache_slots = params.moe_cache_slots;
+    cparams.moe_cache_admit = params.moe_cache_admit;
 
     // initialized later
     cparams.pipeline_parallel = false;
@@ -520,7 +522,7 @@ llama_context::llama_context(
             model.split_mode() == LLAMA_SPLIT_MODE_LAYER &&
             cparams.offload_kqv &&
             !model.has_tensor_overrides() &&
-            cparams.moe_cache_size == 0; // not supported by the MoE cache
+            cparams.moe_cache_size == 0 && cparams.moe_cache_slots == 0; // not supported by the MoE cache
 
         // pipeline parallelism requires support for async compute and events in all devices
         if (pipeline_parallel) {
@@ -548,8 +550,8 @@ llama_context::llama_context(
             LLAMA_LOG_INFO("%s: pipeline parallelism enabled\n", __func__);
         }
 
-        if (cparams.moe_cache_size > 0) {
-            moe_cache = std::make_unique<llama_moe_cache>(model, backend_ptrs, backend_buft, cparams.moe_cache_size);
+        if (cparams.moe_cache_size > 0 || cparams.moe_cache_slots > 0) {
+            moe_cache = std::make_unique<llama_moe_cache>(model, backend_ptrs, backend_buft, cparams.moe_cache_size, cparams.moe_cache_slots, cparams.moe_cache_admit);
         }
 
         sched_reserve();
@@ -4002,6 +4004,8 @@ llama_context_params llama_context_default_params() {
         /*.type_k                      =*/ GGML_TYPE_F16,
         /*.type_v                      =*/ GGML_TYPE_F16,
         /*.moe_cache_size              =*/ 0,
+        /*.moe_cache_slots             =*/ 0,
+        /*.moe_cache_admit             =*/ 8,
         /*.abort_callback              =*/ nullptr,
         /*.abort_callback_data         =*/ nullptr,
         /*.embeddings                  =*/ false,

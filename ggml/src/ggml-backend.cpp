@@ -700,6 +700,16 @@ void ggml_backend_event_synchronize(ggml_backend_event_t event) {
     event->device->iface.event_synchronize(event->device, event);
 }
 
+bool ggml_backend_event_query(ggml_backend_event_t event) {
+    GGML_ASSERT(event);
+
+    if (event->device->iface.event_query == NULL) {
+        ggml_backend_event_synchronize(event);
+        return true;
+    }
+    return event->device->iface.event_query(event->device, event);
+}
+
 void ggml_backend_event_wait(ggml_backend_t backend, ggml_backend_event_t event) {
     GGML_ASSERT(backend);
     GGML_ASSERT(backend->iface.event_wait != NULL);
@@ -1837,16 +1847,17 @@ static void ggml_backend_sched_copy_input(ggml_backend_sched_t sched, struct ggm
         return;
     }
 
+    // the copy callback runs before the wait below: it must order its writes after the work of the split backend, e.g. with async copies on it
+    if (sched->callback_copy != NULL && ggml_backend_sched_is_host_weight(input) &&
+        sched->callback_copy(split_backend, input, input_cpy, &split->graph, sched->callback_copy_user_data)) {
+        return;
+    }
+
     // wait for the split backend to finish using the input before overwriting it
     if (sched->events[split_backend_id][sched->cur_copy] != NULL) {
         ggml_backend_event_wait(split_backend, sched->events[split_backend_id][sched->cur_copy]);
     } else {
         ggml_backend_synchronize(split_backend);
-    }
-
-    if (sched->callback_copy != NULL && ggml_backend_sched_is_host_weight(input) &&
-        sched->callback_copy(split_backend, input, input_cpy, &split->graph, sched->callback_copy_user_data)) {
-        return;
     }
 
     // try async copy, but if not possible, we can still use a sync copy without synchronizing the dst backend, since we handle the synchronization here with multiple copies and events

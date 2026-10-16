@@ -127,6 +127,8 @@ extern "C" {
     GGML_API void                 ggml_backend_event_free(ggml_backend_event_t event);
     GGML_API void                 ggml_backend_event_record(ggml_backend_event_t event, ggml_backend_t backend);
     GGML_API void                 ggml_backend_event_synchronize(ggml_backend_event_t event);
+    // true if the work recorded by the event is done, does not block (blocks if the device cannot query events)
+    GGML_API bool                 ggml_backend_event_query(ggml_backend_event_t event);
     GGML_API void                 ggml_backend_event_wait(ggml_backend_t backend, ggml_backend_event_t event);
 
     //
@@ -321,6 +323,7 @@ extern "C" {
     // if the user returns false the scheduler simply copies the entire weight
     // the callback is called only for input weights in host buffers
     // the callback is called after all non-weight inputs of the split have been copied
+    // the scheduler does not wait for the backend before the callback: the callback must order its writes after the work of the backend (e.g. async copies on it)
     // `src` is the tensor in the previous split
     // `dst` is the copy of `src` in the split
     // `graph` is the compute graph of the split

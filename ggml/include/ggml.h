@@ -925,6 +925,7 @@ extern "C" {
             enum   ggml_type      type);
 
     // dst[i0, i1, i2] = a[i0, i1, i2] + b[i0, ids[i1, i2]]
+    // a negative id adds no bias (CPU, CUDA)
     GGML_API struct ggml_tensor * ggml_add_id(
             struct ggml_context * ctx,
             struct ggml_tensor  * a,
@@ -1502,6 +1503,7 @@ extern "C" {
     // note: this op has undefined behaviour if a given `a` is referenced more than once for a given `b`
     //       (i.e. duplicate experts per token are not guaranteed to be supported in all backends)
     // TODO: add backend support: https://github.com/ggml-org/llama.cpp/pull/29998#issuecomment-6153742533
+    // a negative id skips the expert and gives a zero row (CPU, and CUDA for small batches of quantized experts)
     GGML_API struct ggml_tensor * ggml_mul_mat_id(
             struct ggml_context * ctx,
             struct ggml_tensor  * as,
