@@ -1,0 +1,57 @@
+name: MoE expert cache - share your results
+description: Tried the moe-hybrid-cache branch? Post your numbers here (good or bad)
+title: "[results] <GPU> / <model>"
+labels: ["moe-cache-results"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for trying it! Rough numbers are fine, no need to run the full benchmark.
+        If something broke, use a blank issue instead and paste the log.
+  - type: input
+    id: gpu
+    attributes:
+      label: GPU and VRAM
+      placeholder: e.g. RTX 3060 Ti 8 GB
+    validations:
+      required: true
+  - type: input
+    id: pcie
+    attributes:
+      label: PCIe link (gen + width)
+      description: "`nvidia-smi --query-gpu=pcie.link.gen.max,pcie.link.width.max --format=csv` shows it"
+      placeholder: e.g. Gen3 x16
+    validations:
+      required: true
+  - type: input
+    id: cpu-ram
+    attributes:
+      label: CPU and RAM
+      placeholder: e.g. Ryzen 5 5500, 32 GB DDR4-2667 dual channel
+    validations:
+      required: true
+  - type: input
+    id: model
+    attributes:
+      label: Model and quant
+      placeholder: e.g. Qwen3-30B-A3B-Instruct-2507 Q4_K_M
+    validations:
+      required: true
+  - type: textarea
+    id: commands
+    attributes:
+      label: Commands you ran
+      description: the stock one and the cache one
+      render: shell
+  - type: textarea
+    id: numbers
+    attributes:
+      label: Decode speed (tok/s)
+      description: stock --n-cpu-moe vs this branch. Hit rate too if you have it (it's in the server log as moe_cache_stats)
+    validations:
+      required: true
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else
+      description: OS, driver, power limit, weird stuff you noticed

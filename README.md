@@ -1,6 +1,6 @@
 > [!NOTE]
-> **This fork** adds an experimental hybrid VRAM expert cache for MoE models on the `moe-hybrid-cache` branch: about **2x faster** decode than `--n-cpu-moe` on an 8 GB GPU (gpt-oss-20b 43.6 → 87.1 tok/s, Qwen3-30B-A3B 37.3 → 75.9 tok/s on an RTX 3060 Ti).
-> See [docs/moe-hybrid-cache.md](docs/moe-hybrid-cache.md). Written with Claude (AI) under the direction of [@simonyos](https://github.com/simonyos); everything else is upstream [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp).
+> **What's in this fork:** an experimental MoE expert cache (branch `moe-hybrid-cache`). On my RTX 3060 Ti 8 GB it's about 2x faster than `--n-cpu-moe` (gpt-oss-20b 43.6 → 87.1 tok/s, Qwen3-30B-A3B 37.3 → 75.9 tok/s).
+> Details and how to try it: [docs/moe-hybrid-cache.md](docs/moe-hybrid-cache.md). The code was written by Claude (AI) while I steered it. Everything else here is just upstream [ggml-org/llama.cpp](https://github.com/ggml-org/llama.cpp).
 
 # llama.cpp
 
